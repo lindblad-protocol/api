@@ -1,0 +1,346 @@
+# Lindblad Protocol — API Reference
+
+**Base URL:** `https://lindblad.io`  
+**Version:** 1.0  
+**Network:** Arbitrum Sepolia (testnet) → Arbitrum One (mainnet, upcoming)
+
+---
+
+## Overview
+
+The Lindblad VPS API provides access to the Spectral Ledger — the physics-anchored token transport layer of the Lindblad Protocol. All endpoints are public and require no authentication for read operations.
+
+---
+
+## Chain & Blocks
+
+### `GET /chain`
+Returns a summary of the current chain state.
+
+**Response:**
+```json
+{
+  "blockCount": 9534,
+  "latestEpoch": 19499,
+  "earliestEpoch": 3,
+  "digest": "a0e8c661",
+  "totalMined": 663169812500,
+  "totalBurned": 0
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| blockCount | integer | Total blocks in the Spectral Ledger |
+| latestEpoch | integer | Most recent epoch number |
+| totalMined | integer | Total PYCO mined (in microunits, divide by 1e6) |
+| totalBurned | integer | Total PYCO burned (in microunits) |
+
+---
+
+### `GET /blocks`
+Returns the last 50 blocks.
+
+**Response:**
+```json
+{
+  "blocks": [
+    {
+      "epoch": 19499,
+      "digest": "a0e8c661",
+      "nodeCount": 4,
+      "txCount": 0,
+      "timestamp": 1748200000
+    }
+  ]
+}
+```
+
+---
+
+### `GET /block/latest`
+Returns the most recent block with full attestation data.
+
+---
+
+## Accounts & Balances
+
+### `GET /account/{LD-address}`
+Returns the PYCO balance for a given LD address from the Spectral Ledger.
+
+**Example:**
+```
+GET /account/LD-EC6C1139FA3CD393
+```
+
+**Response:**
+```json
+{
+  "address": "LD-EC6C1139FA3CD393",
+  "balance": 299036.99
+}
+```
+
+---
+
+### `GET /token-balance/{LD-address}?token={TOKEN}`
+Returns the balance of a specific token (USDT, USDC, PYCO, BOBL).
+
+**Example:**
+```
+GET /token-balance/LD-EC6C1139FA3CD393?token=USDT
+```
+
+**Response:**
+```json
+{
+  "address": "LD-EC6C1139FA3CD393",
+  "token": "USDT",
+  "balance": 30000000
+}
+```
+
+> Note: Balances are returned in microunits. Divide by 1,000,000 for display value.
+
+---
+
+### `POST /send-token`
+Transfer tokens between LD addresses. Internal transfers are free and instant.
+
+**Body:**
+```json
+{
+  "from": "LD-EC6C1139FA3CD393",
+  "to": "LD-95A821D9AC091073",
+  "token": "USDT",
+  "amount": 10000000,
+  "sig": "..."
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "txId": "abc123"
+}
+```
+
+---
+
+## Nodes
+
+### `GET /nodes`
+Returns all registered nodes with status.
+
+**Response:**
+```json
+{
+  "nodes": [
+    {
+      "id": "LD95A821D",
+      "puf": "95A821D9xxxxxxxx",
+      "lastSeen": 1748200000,
+      "status": "active",
+      "lastEpoch": 19499
+    }
+  ],
+  "count": 4
+}
+```
+
+| Field | Description |
+|---|---|
+| id | Short node ID (LD + 7 chars of PUF) |
+| status | `active` = last seen < 120s ago, `idle` = otherwise |
+| lastEpoch | Most recent epoch this node submitted |
+
+---
+
+### `GET /node-status?nodeId={id}`
+Returns whether a specific node is currently online.
+
+**Example:**
+```
+GET /node-status?nodeId=LD95A821D
+```
+
+**Response:**
+```json
+{
+  "nodeId": "LD95A821D",
+  "online": true,
+  "lastSeen": 1748200000
+}
+```
+
+---
+
+### `GET /device/nodes?puf={puf}`
+Returns all nodes authorized for a given device PUF.
+
+**Example:**
+```
+GET /device/nodes?puf=EC6C1139FA3CD393
+```
+
+**Response:**
+```json
+{
+  "nodes": [
+    {
+      "nodeId": "LD95A821D",
+      "nodePuf": "95A821D9xxxxxxxx",
+      "ip": "192.168.x.x",
+      "lastEpoch": 19499
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+## Bridge
+
+### `GET /node-challenge?nodeId={id}`
+Returns a signing challenge for a node. Used before bridge withdrawals.
+
+**Response:**
+```json
+{
+  "challenge": "a3f8c2...",
+  "expiresAt": 1748200060
+}
+```
+
+> Challenge expires in 60 seconds.
+
+---
+
+### `POST /request-sign`
+Queues a hardware signing request for a node.
+
+**Body:**
+```json
+{
+  "nodeId": "LD95A821D",
+  "challenge": "a3f8c2...",
+  "amount": 10000000,
+  "token": "USDT",
+  "toAddress": "0xYourArbitrumAddress"
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "signId": "sign_abc123"
+}
+```
+
+---
+
+### `GET /get-sign?signId={id}`
+Poll for the result of a hardware signing request.
+
+**Response:**
+```json
+{
+  "status": "complete",
+  "r": "0x...",
+  "s": "0x...",
+  "v": 27
+}
+```
+
+| Status | Description |
+|---|---|
+| `pending` | Node has not yet signed |
+| `complete` | Signature ready — use r, s, v to call contract |
+| `expired` | Challenge expired — request again |
+
+---
+
+### `POST /verify-pairing`
+Verify a pairing code and authorize a device to a node.
+
+**Body:**
+```json
+{
+  "nodeId": "LD95A821D",
+  "code": "KERX84",
+  "ldAddr": "LD-EC6C1139FA3CD393"
+}
+```
+
+**Response:**
+```json
+{
+  "ok": true,
+  "nodeId": "LD95A821D",
+  "puf": "95A821D9xxxxxxxx"
+}
+```
+
+---
+
+## Node Address Format
+
+Every participant on the Spectral Ledger is identified by an LDXXXXXXX address:
+
+```
+Full PUF:     95A821D9AC091073   (16 hex chars, from SRAM PUF)
+Short ID:     LD95A821D          (LD + first 7 chars)
+Full address: LD-95A821D9AC091073 (used in API calls)
+```
+
+- Short ID is used for display
+- Full address (`LD-{PUF}`) is used in all API calls
+- Each address is physically unique — generated by silicon at manufacture
+
+---
+
+## Smart Contracts
+
+Deployed on **Arbitrum Sepolia** (testnet):
+
+| Contract | Address |
+|---|---|
+| LindblabUSDT v3 | `0x2A30BFb63c65EC7BAE244B4f49e05904483C877c` |
+| LindblabUSDC v3 | `0x20f409b8B8b8E517b24ab00C3A0027e286f392fB` |
+| PYCO ERC-20 | `0xABFc535DD9A85Bd6BA61192210623fEfADD912A1` |
+| MockUSDT | `0xF9105b8f19E9B474eAe96053Ab35DaC4d8957cef` |
+| MockUSDC | `0x7426074516DC17Ed6dDf607eAdD8631132f74626` |
+
+> Mainnet contracts coming soon.
+
+---
+
+## PYCO Token
+
+- **Max supply:** 100,000,000 PYCO
+- **Bridge fee:** 0.1% of withdrawal amount
+- **Fee split:** 50% burned permanently, 50% to active node operators
+- **Internal transfers:** Always free
+- **Rewards:** Distributed by Physical Coherence Verification Score (PCV-4)
+
+---
+
+## Rate Limits
+
+The API is currently open with no enforced rate limits. Please be considerate with polling frequency — recommended interval is 30 seconds for live data.
+
+---
+
+## Links
+
+- Website: [lindblad.io](https://lindblad.io)
+- Wallet: [lindblad.io/wallet](https://lindblad.io/wallet)
+- Block Explorer: [lindblad.io/scan](https://lindblad.io/scan)
+- GitHub: [github.com/lindblad-protocol](https://github.com/lindblad-protocol)
+
+---
+
+*Lindblad Protocol — The hardware decides. The physics guarantees.*
